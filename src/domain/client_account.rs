@@ -1,39 +1,22 @@
-use super::transaction::{Transaction, TransactionId};
+use super::transaction::Transaction;
 use crate::domain::transaction::{Deposit, TransactionAction, Withdrawal};
 use anyhow::{Error, Result};
 use rust_decimal::Decimal;
-use serde::Serialize;
 use std::collections::{hash_map::Entry, HashMap};
 
 pub type ClientId = u16;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub struct ClientAccount {
-    #[serde(rename(serialize = "client"))]
     pub client_id: u16,
-
-    #[serde(rename(serialize = "available"))]
     pub available_balance: Decimal,
-
-    #[serde(rename(serialize = "held"))]
     pub held_balance: Decimal,
-
-    #[serde(rename(serialize = "total"))]
     pub total_balance: Decimal,
-
     pub locked: bool,
-
-    #[serde(skip_serializing)]
-    pub last_transaction_id: Option<TransactionId>,
-
-    #[serde(skip_serializing)]
-    pub applied_deposits: HashMap<u32, Deposit>,
-
-    #[serde(skip_serializing)]
+    pub good_deposits: HashMap<u32, Deposit>,
     pub disputed_deposits: HashMap<u32, Deposit>,
-
-    #[serde(skip_serializing)]
     pub chargedback_deposits: HashMap<u32, Deposit>,
+    pub applied_transaction_ids: HashMap<u32, ()>,
 }
 
 impl ClientAccount {
@@ -44,10 +27,10 @@ impl ClientAccount {
             held_balance: Decimal::ZERO,
             total_balance: Decimal::ZERO,
             locked: false,
-            last_transaction_id: None,
-            applied_deposits: HashMap::new(),
+            good_deposits: HashMap::new(),
             disputed_deposits: HashMap::new(),
             chargedback_deposits: HashMap::new(),
+            applied_transaction_ids: HashMap::new(),
         }
     }
     pub fn apply_transaction(&mut self, transaction: Transaction) -> Result<()> {
@@ -80,7 +63,7 @@ impl ClientAccount {
     }
 
     fn apply_deposit(&mut self, transaction_id: u32, deposit: Deposit) -> Result<()> {
-        if !self.is_transaction_in_order(transaction_id) {
+        if self.applied_transaction_ids.contains_key(&transaction_id) {
             return Ok(());
         }
 
@@ -94,14 +77,14 @@ impl ClientAccount {
             .ok_or(Error::msg("Deposit would cause balance overflow"))?;
 
         self.available_balance += deposit.amount;
-        self.applied_deposits.insert(transaction_id, deposit);
-        self.last_transaction_id = Some(transaction_id);
+        self.good_deposits.insert(transaction_id, deposit);
+        self.applied_transaction_ids.insert(transaction_id, ());
 
         Ok(())
     }
 
     fn apply_withdrawal(&mut self, transaction_id: u32, withdrawal: Withdrawal) -> Result<()> {
-        if !self.is_transaction_in_order(transaction_id) {
+        if self.applied_transaction_ids.contains_key(&transaction_id) {
             return Ok(());
         }
 
@@ -113,15 +96,15 @@ impl ClientAccount {
         // a withdrawal cannot leave a negative balance. The total balance can
         // never underflow because it will always be at least as high as the available balance
 
-        self.available_balance = self.available_balance - withdrawal.amount;
+        self.available_balance -= withdrawal.amount;
         self.total_balance -= withdrawal.amount;
-        self.last_transaction_id = Some(transaction_id);
+        self.applied_transaction_ids.insert(transaction_id, ());
 
         Ok(())
     }
 
     fn apply_dispute(&mut self, transaction_id: u32) -> Result<()> {
-        match self.applied_deposits.entry(transaction_id) {
+        match self.good_deposits.entry(transaction_id) {
             Entry::Occupied(entry) => {
                 let deposit = entry.get();
 
@@ -129,13 +112,12 @@ impl ClientAccount {
                 // The available balance cannot underflow because either the held balance
                 // would overflow and get caught here or a chargeback would lock the account.
 
-                let held_balance = self
+                self.held_balance = self
                     .held_balance
                     .checked_add(deposit.amount)
                     .ok_or(Error::msg("Dispute would cause held balance overflow"))?;
 
                 self.available_balance -= deposit.amount;
-                self.held_balance = held_balance;
                 self.disputed_deposits
                     .insert(transaction_id, entry.remove());
 
@@ -156,7 +138,7 @@ impl ClientAccount {
 
                 self.available_balance += deposit.amount;
                 self.held_balance -= deposit.amount;
-                self.applied_deposits.insert(transaction_id, entry.remove());
+                self.good_deposits.insert(transaction_id, entry.remove());
 
                 Ok(())
             }
@@ -183,18 +165,6 @@ impl ClientAccount {
             }
             Entry::Vacant(_) => Ok(()),
         }
-    }
-
-    fn is_transaction_in_order(&self, transaction_id: u32) -> bool {
-        match self.last_transaction_id {
-            Some(last_transaction_id) => {
-                if last_transaction_id >= transaction_id {
-                    return false;
-                }
-            }
-            _ => (),
-        };
-        return true;
     }
 }
 
@@ -401,6 +371,72 @@ mod tests {
     }
 
     #[test]
+    fn applies_dispute_after_previous_dispute_is_resolved() -> Result<()> {
+        let client_id = 1;
+        let mut client_account = ClientAccount::new(client_id);
+
+        client_account.apply_transaction(Transaction {
+            client_id,
+            transaction_id: 1,
+            action: TransactionAction::Deposit(Deposit {
+                amount: dec!(12.5555),
+            }),
+        })?;
+
+        client_account.apply_transaction(Transaction {
+            client_id,
+            transaction_id: 1,
+            action: TransactionAction::Dispute,
+        })?;
+
+        client_account.apply_transaction(Transaction {
+            client_id,
+            transaction_id: 1,
+            action: TransactionAction::Resolve,
+        })?;
+
+        client_account.apply_transaction(Transaction {
+            client_id,
+            transaction_id: 1,
+            action: TransactionAction::Dispute,
+        })?;
+
+        assert_eq!(dec!(0), client_account.available_balance);
+        assert_eq!(dec!(12.5555), client_account.held_balance);
+        assert_eq!(dec!(12.5555), client_account.total_balance);
+
+        Ok(())
+    }
+
+    #[test]
+    fn applies_transactions_out_of_order() -> Result<()> {
+        let client_id = 1;
+        let mut client_account = ClientAccount::new(client_id);
+
+        client_account.apply_transaction(Transaction {
+            client_id,
+            transaction_id: 2,
+            action: TransactionAction::Deposit(Deposit {
+                amount: dec!(12.5555),
+            }),
+        })?;
+
+        assert_eq!(dec!(12.5555), client_account.available_balance);
+        assert_eq!(dec!(12.5555), client_account.total_balance);
+
+        client_account.apply_transaction(Transaction {
+            client_id,
+            transaction_id: 1,
+            action: TransactionAction::Deposit(Deposit { amount: dec!(1) }),
+        })?;
+
+        assert_eq!(dec!(13.5555), client_account.available_balance);
+        assert_eq!(dec!(13.5555), client_account.total_balance);
+
+        Ok(())
+    }
+
+    #[test]
     fn fails_to_apply_deposit_due_to_overflow() -> Result<()> {
         let client_id = 1;
         let mut client_account = ClientAccount::new(client_id);
@@ -571,7 +607,7 @@ mod tests {
     }
 
     #[test]
-    fn skips_applying_deposit_subsequently() -> Result<()> {
+    fn skips_applying_deposit_twice() -> Result<()> {
         let client_id = 1;
         let mut client_account = ClientAccount::new(client_id);
 
@@ -599,7 +635,7 @@ mod tests {
     }
 
     #[test]
-    fn skips_applying_withdrawal_subsequently() -> Result<()> {
+    fn skips_applying_withdrawal_twice() -> Result<()> {
         let client_id = 1;
         let mut client_account = ClientAccount::new(client_id);
 

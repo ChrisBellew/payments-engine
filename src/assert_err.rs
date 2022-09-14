@@ -1,3 +1,4 @@
+#[allow(unused_macros)]
 macro_rules! assert_err {
     ($result:expr, $message:literal) => {
         assert!($result.is_err());
@@ -5,4 +6,5 @@ macro_rules! assert_err {
     };
 }
 
+#[allow(unused_imports)]
 pub(crate) use assert_err;

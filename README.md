@@ -10,15 +10,17 @@ cargo run -- transactions.csv > accounts.csv
 
 ## Running the tests
 
-There are unit tests for each functional unit and a load test for observing performance with a large input. The load test helps to compare design choices with rough measurements.
-
 ### Unit tests
+
+There are unit tests for each functional unit.
 
 ```sh
 cargo test
 ```
 
-### Load test
+### Large file test
+
+There is also a large file test for observing performance with a large input. To run, uncomment the `#[ignore]` attribute on the `test_large_file()` test. Then run the tests.
 
 ```sh
 cargo test
@@ -36,9 +38,11 @@ The integer type would avoid difficulties around stored precision and arithmetic
 
 I decided to choose the limited precision decimal type `rust_decimal::Decimal`.
 
-I also choose to use checked arithmetic so that overflows and underflows could be detected and reported as an error.
+I also choose to use checked arithmetic so that overflows and underflows could be detected and reported as an error when build in release mode.
 
 ### Negative balance
+
+I have assumed that a negative available balance is acceptable for the purposes of allowing a dispute to be applied. Without knowing more about the domain this is my best guess. Of course a withdrawal is not able to result in a negative available balance.
 
 ### Record Processing
 
@@ -64,7 +68,7 @@ One improvement to the data model could be to include identifiers for the operat
 
 ### External Library Usage
 
-Generally I try to stick to the std library wherever possible to keep my codebases looking somewhat consistent and to limit supply chain attacks. However, one exception is the anyhow crate which provides (subjectively) more ergonomic error types.
+Generally I try to stick to the std library wherever possible to keep my codebases looking somewhat consistent and to limit supply chain attacks. However, one exception I usually make is the anyhow crate which provides (subjectively) more ergonomic error types.
 
 ### Prefer Type Safety
 
@@ -72,18 +76,31 @@ I prefer using the type system over runtime validation to guarantee safety. E.g 
 
 ### Disputes
 
-I've assumed that only deposits can be disputed, not withdrawals. I'm not sure why a withdrawal would be disputed.
+Disputes are apparently possible on 'transactions' which I've understood to be either deposits or withdrawals. However, I've assumed that only deposits can be disputed, not withdrawals. I'm not sure why a withdrawal would be disputed.
 
 I've assumed that the same deposit can be disputed multiple times, as long is it resolved between each dispute.
 
+### Error Handling
+
+Rather than panicing I've relied upon `Result` passing with useful detail for debugging the issue.
+
+I would handle error results differently depending upon the deployment of the system:
+
+- In a web service the result could be returned as an HTTP response with status 4xx or 5xx depending upon the error.
+- In a batch job the process could log the error, fail, and retry with backoffs.
+- In an event driven distributed system this error could be emitted as an 'error event' and published to a queue which the original submitter could listen to.
+
 ### Large inputs
 
-- Maximum number of transactions
-- Maximum number of clients
-- Run time
-- Hashmaps -> database?
+For large inputs, the concern will be the growing memory usage for keeping track of the state of each deposit. Specifically the `HashSets` in `src/domain/client_account.rs` and the `HashSet` of client accounts in `src/main.rs`. An external store such as a relational database would be suitable to store this state if inputs are expected to be large or there is expected to be high cardinality of clients.
 
 ### Tests
 
+My testing strategy was to spend most effort on the critical domain code so most tests are around the client account application functions. I'm generally not someone who chases 100% code coverage for the sake of it, but I like having a lot of tests around the business critical segments.
+
 - Non zero amounts
 - Negative amounts
+
+### More
+
+- Output 4 decimal places
