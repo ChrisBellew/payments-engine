@@ -1,4 +1,4 @@
-use super::transaction::Transaction;
+use super::transaction::{Transaction, TransactionId};
 use crate::domain::transaction::{Deposit, TransactionAction, Withdrawal};
 use anyhow::{Error, Result};
 use rust_decimal::Decimal;
@@ -8,19 +8,19 @@ pub type ClientId = u16;
 
 #[derive(Debug)]
 pub struct ClientAccount {
-    pub client_id: u16,
+    pub client_id: ClientId,
     pub available_balance: Decimal,
     pub held_balance: Decimal,
     pub total_balance: Decimal,
     pub locked: bool,
-    pub good_deposits: HashMap<u32, Deposit>,
-    pub disputed_deposits: HashMap<u32, Deposit>,
-    pub chargedback_deposits: HashMap<u32, Deposit>,
-    pub applied_transaction_ids: HashMap<u32, ()>,
+    pub good_deposits: HashMap<TransactionId, Deposit>,
+    pub disputed_deposits: HashMap<TransactionId, Deposit>,
+    pub chargedback_deposits: HashMap<TransactionId, Deposit>,
+    pub applied_transaction_ids: HashMap<TransactionId, ()>,
 }
 
 impl ClientAccount {
-    pub fn new(client_id: u16) -> ClientAccount {
+    pub fn new(client_id: ClientId) -> ClientAccount {
         ClientAccount {
             client_id,
             available_balance: Decimal::ZERO,
@@ -62,7 +62,7 @@ impl ClientAccount {
         })
     }
 
-    fn apply_deposit(&mut self, transaction_id: u32, deposit: Deposit) -> Result<()> {
+    fn apply_deposit(&mut self, transaction_id: TransactionId, deposit: Deposit) -> Result<()> {
         if self.applied_transaction_ids.contains_key(&transaction_id) {
             return Ok(());
         }
@@ -83,7 +83,11 @@ impl ClientAccount {
         Ok(())
     }
 
-    fn apply_withdrawal(&mut self, transaction_id: u32, withdrawal: Withdrawal) -> Result<()> {
+    fn apply_withdrawal(
+        &mut self,
+        transaction_id: TransactionId,
+        withdrawal: Withdrawal,
+    ) -> Result<()> {
         if self.applied_transaction_ids.contains_key(&transaction_id) {
             return Ok(());
         }
@@ -103,7 +107,7 @@ impl ClientAccount {
         Ok(())
     }
 
-    fn apply_dispute(&mut self, transaction_id: u32) -> Result<()> {
+    fn apply_dispute(&mut self, transaction_id: TransactionId) -> Result<()> {
         match self.good_deposits.entry(transaction_id) {
             Entry::Occupied(entry) => {
                 let deposit = entry.get();
@@ -127,7 +131,7 @@ impl ClientAccount {
         }
     }
 
-    fn apply_resolve(&mut self, transaction_id: u32) -> Result<()> {
+    fn apply_resolve(&mut self, transaction_id: TransactionId) -> Result<()> {
         match self.disputed_deposits.entry(transaction_id) {
             Entry::Occupied(entry) => {
                 let deposit = entry.get();
@@ -146,7 +150,7 @@ impl ClientAccount {
         }
     }
 
-    fn apply_chargeback(&mut self, transaction_id: u32) -> Result<()> {
+    fn apply_chargeback(&mut self, transaction_id: TransactionId) -> Result<()> {
         match self.disputed_deposits.entry(transaction_id) {
             Entry::Occupied(entry) => {
                 let deposit = entry.get();
