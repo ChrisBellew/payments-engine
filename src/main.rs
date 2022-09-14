@@ -56,7 +56,7 @@ fn process_csv(csv_path: &str) -> Result<Vec<ClientAccount>> {
 }
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
+    use std::{fs::File, io::BufWriter};
 
     use anyhow::Result;
     use csv::Writer;
@@ -66,11 +66,11 @@ mod tests {
     use crate::process_csv;
 
     #[test]
-    #[ignore] // Uncomment this to test performance of a large file
+    #[ignore] // Comment this to test performance of a large file
     fn test_large_file() -> Result<()> {
-        let csv_path = "large-file.csv";
-        let mut writer = Writer::from_writer(File::create(csv_path)?);
-        let num_events = 1_000_000;
+        let csv_path = "/media/chris/x/large-file.csv";
+        let mut writer = Writer::from_writer(BufWriter::new(File::create(csv_path)?));
+        let num_events = 1_000_000_000;
         let num_deposits = num_events / 4;
 
         writer.write_record(&["type", "client", "tx", "amount"])?;
