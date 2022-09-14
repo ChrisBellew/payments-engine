@@ -1,4 +1,4 @@
-use anyhow::{Error, Result};
+use anyhow::{ensure, Error, Result};
 use csv::StringRecord;
 use rust_decimal::Decimal;
 use serde::Deserialize;
@@ -31,16 +31,32 @@ impl CsvTransaction {
             amount,
         } = self;
         match transaction_type.as_str() {
-            "deposit" => Ok(Transaction {
-                client_id,
-                transaction_id,
-                action: TransactionAction::Deposit(Deposit { amount }),
-            }),
-            "withdrawal" => Ok(Transaction {
-                client_id,
-                transaction_id,
-                action: TransactionAction::Withdrawal(Withdrawal { amount }),
-            }),
+            "deposit" => {
+                let transaction = Transaction {
+                    client_id,
+                    transaction_id,
+                    action: TransactionAction::Deposit(Deposit { amount }),
+                };
+                ensure!(
+                    amount > Decimal::ZERO,
+                    "Failed to read {}: Amount is negative or zero",
+                    transaction.to_string()
+                );
+                Ok(transaction)
+            }
+            "withdrawal" => {
+                let transaction = Transaction {
+                    client_id,
+                    transaction_id,
+                    action: TransactionAction::Withdrawal(Withdrawal { amount }),
+                };
+                ensure!(
+                    amount > Decimal::ZERO,
+                    "Failed to read {}: Amount is negative or zero",
+                    transaction.to_string()
+                );
+                Ok(transaction)
+            }
             "dispute" => Ok(Transaction {
                 client_id,
                 transaction_id,
@@ -61,5 +77,69 @@ impl CsvTransaction {
                 transaction_type
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CsvTransaction;
+    use crate::assert_err::assert_err;
+    use anyhow::Result;
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn fails_to_read_deposit_with_zero_amount() -> Result<()> {
+        assert_err!(
+            CsvTransaction::to_transaction(CsvTransaction {
+                transaction_type: "deposit".to_string(),
+                client_id: 1,
+                transaction_id: 1,
+                amount: dec!(0),
+            }),
+            "Failed to read deposit with transaction ID 1: Amount is negative or zero"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fails_to_read_deposit_with_negative_amount() -> Result<()> {
+        assert_err!(
+            CsvTransaction::to_transaction(CsvTransaction {
+                transaction_type: "deposit".to_string(),
+                client_id: 1,
+                transaction_id: 1,
+                amount: dec!(-1),
+            }),
+            "Failed to read deposit with transaction ID 1: Amount is negative or zero"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fails_to_read_withdrawal_with_zero_amount() -> Result<()> {
+        assert_err!(
+            CsvTransaction::to_transaction(CsvTransaction {
+                transaction_type: "withdrawal".to_string(),
+                client_id: 1,
+                transaction_id: 1,
+                amount: dec!(0),
+            }),
+            "Failed to read withdrawal with transaction ID 1: Amount is negative or zero"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fails_to_read_withdrawal_with_negative_amount() -> Result<()> {
+        assert_err!(
+            CsvTransaction::to_transaction(CsvTransaction {
+                transaction_type: "withdrawal".to_string(),
+                client_id: 1,
+                transaction_id: 1,
+                amount: dec!(-1),
+            }),
+            "Failed to read withdrawal with transaction ID 1: Amount is negative or zero"
+        );
+        Ok(())
     }
 }

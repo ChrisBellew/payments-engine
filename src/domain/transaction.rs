@@ -10,6 +10,28 @@ pub struct Transaction {
     pub action: TransactionAction,
 }
 
+impl Transaction {
+    pub fn to_string(&self) -> String {
+        match self.action {
+            TransactionAction::Deposit(_) => {
+                format!("deposit with transaction ID {}", self.transaction_id)
+            }
+            TransactionAction::Withdrawal(_) => {
+                format!("withdrawal with transaction ID {}", self.transaction_id)
+            }
+            TransactionAction::Dispute => {
+                format!("dispute for transaction ID {}", self.transaction_id)
+            }
+            TransactionAction::Resolve => {
+                format!("resolve for transaction ID {}", self.transaction_id)
+            }
+            TransactionAction::Chargeback => {
+                format!("chargeback for transaction ID {}", self.transaction_id)
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum TransactionAction {
     Deposit(Deposit),

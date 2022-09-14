@@ -1,3 +1,4 @@
+mod assert_err;
 mod csv;
 mod domain;
 

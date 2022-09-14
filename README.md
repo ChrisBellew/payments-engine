@@ -36,17 +36,31 @@ The integer type would avoid difficulties around stored precision and arithmetic
 
 I decided to choose the limited precision decimal type `rust_decimal::Decimal`.
 
-I also choose to use checked arithmetic so that overflows could be detected and reported as an error.
+I also choose to use checked arithmetic so that overflows and underflows could be detected and reported as an error.
 
 ### Negative balance
 
 ### Record Processing
 
+Given the requirements for dispute, resolve and chargeback to be idempotent I am assuming deposit and withdrawal should be idempotent too. If any of the transactions
+
 I am assuming that duplicate transaction processing must be avoided. If a transaction is duplicated in the input it must only be processed once.
 
 Given transactions are guaranteed to occur chronologically in the file this aids us in preventing duplicate processing of the same transaction. We can process transactions in the same order as the input while keeping track of the last transaction ID that we processed. Then, if we encounter a lower or equivalent transaction ID in the input we can emit an error because it must be out of order or duplicated. This not only validates the assertion that the transactions are provided chronologically but prevents us from processing the same transaction twice. If we encounter the same transaction subsequently we will not risk processing it twice because it will violate the chronological ordering rule too.
 
-<!-- To provide further safety against duplicate processing I've prefered to use apply functions which consume the transaction type by passing ownership to the apply functions (see `domain/client_account.rs`). Then if the next programmer accidentally tries to use the transaction after it has already been applied they are presented with a reminder that it has been used. -->
+To provide further safety against duplicate processing I've prefered to use apply functions which consume the transaction type by passing ownership to the apply functions (see `domain/client_account.rs`). This helps to avoid a transaction being used twice because the borrow checker would complain.
+
+### Atomic Operations
+
+Given the system domain is payments, the integrity of the state is paramount. I have intentionally ensured all domain state operations are atomic and consistent. If the operation is valid all relevant state is changed. If there is an error condition the state is not affected.
+
+### Concurrency
+
+For the purposes of this exercise I have assumed operations are not concurrent. If this system is presented as a web service for example concurrency protections (e.g. mutex, optimistic locking) would need to be introduced.
+
+### Identifiers
+
+One improvement to the data model could be to include identifiers for the operations. The transaction ID does not uniquely identify an operation because it is assumed possible to dispute a deposit twice (if resolved after the first time) for example. An 'event ID' to could be added to uniquely identify each record, declare ordering and help de-duplicate events.
 
 ### External Library Usage
 
@@ -58,7 +72,7 @@ I prefer using the type system over runtime validation to guarantee safety. E.g 
 
 ### Disputes
 
-I've assumed that only deposits can be disputed, not withdrawals.
+I've assumed that only deposits can be disputed, not withdrawals. I'm not sure why a withdrawal would be disputed.
 
 I've assumed that the same deposit can be disputed multiple times, as long is it resolved between each dispute.
 
@@ -67,3 +81,9 @@ I've assumed that the same deposit can be disputed multiple times, as long is it
 - Maximum number of transactions
 - Maximum number of clients
 - Run time
+- Hashmaps -> database?
+
+### Tests
+
+- Non zero amounts
+- Negative amounts
