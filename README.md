@@ -20,7 +20,7 @@ cargo test
 
 ### Large file test
 
-There is also a large file test for observing performance with a large input (13GB, 1 billion events). To run, uncomment the `#[ignore]` attribute on the `test_large_file()` test. Then run the tests.
+There is also a large file test for observing performance with a large input (13GB, 1 billion events). To run, comment the `#[ignore]` attribute on the `test_large_file()` test. Then run the tests.
 
 ```sh
 cargo test
